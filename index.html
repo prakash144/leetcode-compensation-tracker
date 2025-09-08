@@ -72,43 +72,127 @@
         .header {
             background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
             color: white;
-            padding: 2rem;
+            padding: clamp(1.5rem, 4vw, 2.5rem);
             text-align: center;
             position: relative;
             overflow: hidden;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
         }
 
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: clamp(1.5rem, 5vw, 2rem);
+                margin-top: 0.5rem;
+            }
+
+            .header p {
+                font-size: clamp(0.9rem, 3vw, 1.1rem);
+            }
+
+            .stats-banner {
+                gap: clamp(0.5rem, 2vw, 1rem);
+                padding: 0.5rem;
+            }
+
+            .stat-item {
+                padding: clamp(0.5rem, 2vw, 1rem);
+                min-width: clamp(100px, 40vw, 150px);
+            }
+
+            .stat-number {
+                font-size: clamp(1.2rem, 4vw, 1.8rem);
+            }
+
+            .stat-label {
+                font-size: clamp(0.7rem, 2vw, 0.9rem);
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header {
+                padding: 1rem 0.5rem 1.5rem;
+            }
+
+            .stats-banner {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .stat-item {
+                flex: 0 0 calc(50% - 1rem);
+                min-width: auto;
+            }
+        }
+
         .premium-banner {
             position: absolute;
             top: 0;
             right: 0;
-            padding: 1rem;
+            padding: clamp(0.5rem, 2vw, 1rem);
             display: flex;
-            gap: 1rem;
+            gap: clamp(0.5rem, 1.5vw, 1rem);
             align-items: center;
+            z-index: 10;
+        }
+
+        @media (max-width: 768px) {
+            .premium-banner {
+                position: relative;
+                justify-content: center;
+                background: rgba(0, 0, 0, 0.1);
+                margin: -1rem -1rem 1rem -1rem;
+                backdrop-filter: blur(10px);
+            }
+            
+            .theme-switch {
+                transform: scale(0.9);
+            }
+        }
+
+        @media (max-width: 480px) {
+            .premium-tag span {
+                display: none;
+            }
+            
+            .premium-tag {
+                padding: 0.5rem;
+            }
+            
+            .theme-switch {
+                transform: scale(0.8);
+            }
         }
 
         .premium-tag {
             background: rgba(255, 255, 255, 0.1);
-            padding: 0.5rem 1rem;
+            padding: clamp(0.4rem, 1.5vw, 0.75rem) clamp(0.75rem, 2vw, 1rem);
             border-radius: 20px;
             font-weight: 600;
-            font-size: 0.9rem;
+            font-size: clamp(0.8rem, 1.5vw, 0.9rem);
             backdrop-filter: blur(10px);
             display: flex;
             align-items: center;
             gap: 0.5rem;
             border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .premium-tag:hover {
+            background: rgba(255, 255, 255, 0.15);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
 
         .premium-tag i {
             color: #ffd700;
+            font-size: clamp(0.9rem, 1.5vw, 1rem);
         }
 
         .theme-switch-wrapper {
             position: relative;
             margin-left: auto;
+            display: flex;
+            align-items: center;
         }
 
         .theme-switch {
@@ -116,6 +200,7 @@
             height: 34px;
             position: relative;
             width: 60px;
+            transition: transform 0.3s ease;
         }
 
         .theme-switch input {
@@ -224,6 +309,7 @@
             margin-bottom: 0.5rem;
             background: linear-gradient(135deg, #ffd700, #ffa500);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
