@@ -1,0 +1,174 @@
+/* Typeahead Styles */
+.twitter-typeahead {
+    width: 100%;
+    position: relative;
+    display: block !important;
+}
+
+.tt-input {
+    width: 100%;
+    padding: 0.75rem 2.5rem !important;
+    font-size: 0.95rem;
+    border: 2px solid var(--border-color);
+    border-radius: 12px;
+    background-color: var(--light-bg) !important;
+    color: var(--text-primary);
+}
+
+.tt-input:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    outline: none;
+}
+
+.tt-menu {
+    width: 100%;
+    margin-top: 8px;
+    padding: 8px 0;
+    background-color: var(--light-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
+    max-height: 300px;
+    overflow-y: auto;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 1000;
+}
+
+.tt-suggestion {
+    padding: 0;
+    margin: 0;
+}
+
+.autosuggest-item {
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.item-icon {
+    color: var(--primary-color);
+    width: 16px;
+    text-align: center;
+    font-size: 14px;
+}
+
+.item-label {
+    flex: 1;
+    color: var(--text-primary);
+}
+
+.item-meta {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.autosuggest-item:hover,
+.tt-suggestion.tt-cursor .autosuggest-item {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.autosuggest-item:hover .item-icon,
+.tt-suggestion.tt-cursor .item-icon,
+.autosuggest-item:hover .item-label,
+.tt-suggestion.tt-cursor .item-label,
+.autosuggest-item:hover .item-meta,
+.tt-suggestion.tt-cursor .item-meta {
+    color: white;
+}
+
+.filter-group {
+    position: relative;
+    z-index: 100;
+}
+
+.input-icon {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--primary-color);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+    z-index: 3;
+}
+
+.input-group-addon {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: none;
+    padding: 0;
+    z-index: 3;
+}
+
+.input-group-addon:hover {
+    color: var(--danger-color);
+}
+
+.tt-hint {
+    color: var(--text-secondary) !important;
+    padding: 0.75rem 2.5rem !important;
+}
+
+/* Dark mode styles */
+body.dark .tt-input {
+    background-color: var(--dark-input) !important;
+    border-color: var(--dark-border);
+    color: var(--dark-text);
+}
+
+body.dark .tt-menu {
+    background-color: var(--dark-input);
+    border-color: var(--dark-border);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+}
+
+body.dark .item-label {
+    color: var(--dark-text);
+}
+
+body.dark .item-meta {
+    color: var(--dark-muted);
+}
+
+body.dark .autosuggest-item:hover,
+body.dark .tt-suggestion.tt-cursor .autosuggest-item {
+    background-color: var(--dark-accent);
+}
+
+body.dark .tt-hint {
+    color: var(--dark-muted) !important;
+    background-color: transparent !important;
+}
+
+/* Loading indicator */
+.suggestion-loading {
+    position: absolute;
+    right: 40px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: none;
+}
+
+@keyframes spin {
+    to { transform: translateY(-50%) rotate(360deg); }
+}

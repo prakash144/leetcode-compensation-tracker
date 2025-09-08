@@ -37,35 +37,111 @@ class LeetCodeCompensationTracker {
 
     async init() {
         try {
-            await this.loadData();
+            console.log('Initializing application...');
+            
+            // Load data first
+            const dataLoaded = await this.loadData();
+            if (!dataLoaded) {
+                throw new Error('Data loading failed');
+            }
+            
+            // Setup UI components
+            console.log('Setting up UI components...');
             this.setupEventListeners();
             this.populateAutosuggestCaches();
+            
+            // Initialize theme before rendering
+            console.log('Initializing theme...');
+            this.initializeTheme();
+            
+            // Render data
+            console.log('Rendering data...');
             this.updateStats();
             this.renderCharts();
             this.renderTable();
+            
+            // Initialize animations last
+            console.log('Initializing animations...');
             this.initializeAnimations();
-            this.initializeTheme();
+            
+            console.log('Initialization complete');
         } catch (error) {
-            console.error('Initialization error:', error);
-            this.showError('Failed to load data. Please refresh the page.');
+            console.error('Initialization error:', {
+                message: error.message,
+                stack: error.stack,
+                cause: error.cause
+            });
+            
+            // Show user-friendly error message
+            this.showError(`Failed to initialize: ${error.message}. Please try refreshing the page.`);
+            
+            // Reset loading states
+            document.querySelectorAll('.loading').forEach(el => el.style.display = 'none');
         }
     }
 
     async loadData() {
         try {
+            console.log('Starting data load...');
+            console.log('Fetching data from data/parsed_comps.json...');
+            
             const response = await fetch('data/parsed_comps.json');
+            console.log('Fetch response:', {
+                status: response.status,
+                statusText: response.statusText,
+                headers: Object.fromEntries([...response.headers]),
+                type: response.type,
+                url: response.url
+            });
+            
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                console.error('HTTP Error:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    type: response.type,
+                    redirected: response.redirected,
+                    url: response.url
+                });
+                throw new Error(`HTTP error! status: ${response.status}, statusText: ${response.statusText}`);
             }
             
-            const rawOffers = await response.json();
+            console.log('Parsing JSON response...');
+            let rawOffers;
+            try {
+                rawOffers = await response.json();
+            } catch (parseError) {
+                console.error('JSON Parse Error:', {
+                    message: parseError.message,
+                    position: parseError.position,
+                    stack: parseError.stack
+                });
+                throw new Error(`Failed to parse JSON response: ${parseError.message}`);
+            }
+            
+            console.log('Data loaded:', {
+                type: typeof rawOffers,
+                isArray: Array.isArray(rawOffers),
+                length: Array.isArray(rawOffers) ? rawOffers.length : 'not an array',
+                sample: Array.isArray(rawOffers) && rawOffers.length > 0 ? 
+                    JSON.stringify(rawOffers[0]).substring(0, 100) + '...' : 'no data'
+            });
+            
             if (!Array.isArray(rawOffers)) {
-                throw new Error('Invalid data format: Expected an array');
+                console.error('Invalid data format:', {
+                    type: typeof rawOffers,
+                    preview: JSON.stringify(rawOffers).substring(0, 100) + '...'
+                });
+                throw new Error(`Invalid data format: Expected an array, got ${typeof rawOffers}`);
+            }
+            
+            if (rawOffers.length === 0) {
+                throw new Error('Empty data array received from server');
             }
             
             // Validate and clean data before deduplication
+            console.log('Starting data validation...');
             const validOffers = rawOffers.filter(offer => {
-                return offer && 
+                const isValid = offer && 
                        typeof offer === 'object' &&
                        typeof offer.total === 'number' &&
                        !isNaN(offer.total) &&
@@ -80,26 +156,80 @@ class LeetCodeCompensationTracker {
                        !isNaN(offer.yoe) &&
                        offer.creation_date &&
                        typeof offer.creation_date === 'string';
+                
+                if (!isValid && offer) {
+                    console.error('Invalid offer:', {
+                        hasTotal: typeof offer.total === 'number',
+                        totalValue: offer.total,
+                        totalIsNaN: isNaN(offer.total),
+                        hasCompany: Boolean(offer.company),
+                        companyType: typeof offer.company,
+                        hasRole: Boolean(offer.role),
+                        roleType: typeof offer.role,
+                        hasLocation: Boolean(offer.location),
+                        locationType: typeof offer.location,
+                        hasYoe: Boolean(offer.yoe),
+                        yoeType: typeof offer.yoe,
+                        yoeValue: offer.yoe,
+                        yoeIsNaN: isNaN(offer.yoe),
+                        hasDate: Boolean(offer.creation_date),
+                        dateType: typeof offer.creation_date,
+                        preview: JSON.stringify(offer).substring(0, 100) + '...'
+                    });
+                }
+                return isValid;
             });
 
             if (validOffers.length === 0) {
+                console.error('No valid offers in data:', {
+                    totalOffers: rawOffers.length,
+                    validOffers: validOffers.length,
+                    sampleInvalid: rawOffers.length > 0 ? 
+                        JSON.stringify(rawOffers[0]).substring(0, 100) + '...' : 'no data'
+                });
                 throw new Error('No valid offers found in the data');
             }
 
+            console.log('Data validation complete:', {
+                totalOffers: rawOffers.length,
+                validOffers: validOffers.length,
+                invalidOffers: rawOffers.length - validOffers.length
+            });
+
             // Deduplicate based on unique combination of properties
+            console.log('Starting deduplication...');
             const uniqueKey = new Set();
             this.offers = validOffers.filter(offer => {
                 const key = `${offer.company}_${offer.role}_${offer.location}_${offer.yoe}_${offer.total}_${offer.creation_date}`;
-                if (uniqueKey.has(key)) return false;
+                if (uniqueKey.has(key)) {
+                    console.log('Duplicate offer found:', {
+                        key,
+                        company: offer.company,
+                        role: offer.role,
+                        date: offer.creation_date
+                    });
+                    return false;
+                }
                 uniqueKey.add(key);
                 return true;
             });
             
+            console.log('Deduplication complete:', {
+                beforeCount: validOffers.length,
+                afterCount: this.offers.length,
+                duplicatesRemoved: validOffers.length - this.offers.length
+            });
+            
             // Sort by date (newest first)
+            console.log('Sorting offers by date...');
             this.offers.sort((a, b) => {
                 const dateA = new Date(a.creation_date);
                 const dateB = new Date(b.creation_date);
                 if (isNaN(dateA.getTime()) || isNaN(dateB.getTime())) {
+                    console.warn('Invalid date found:', {
+                        dateA: a.creation_date,
+                        dateB: b.creation_date
+                    });
                     return 0; // Invalid dates are treated equally
                 }
                 return dateB - dateA;
@@ -108,13 +238,49 @@ class LeetCodeCompensationTracker {
             this.filteredOffers = [...this.offers];
             
             // Load and cache company logos
+            console.log('Loading company logos...');
             await this.loadCompanyLogos();
             
-            console.log(`Loaded ${this.offers.length} unique offers (${rawOffers.length - validOffers.length} invalid entries skipped)`);
+            console.log('Data load complete:', {
+                uniqueOffers: this.offers.length,
+                invalidEntriesSkipped: rawOffers.length - validOffers.length,
+                duplicatesRemoved: validOffers.length - this.offers.length,
+                dateRange: this.offers.length > 0 ? {
+                    oldest: this.offers[this.offers.length - 1].creation_date,
+                    newest: this.offers[0].creation_date
+                } : 'no data'
+            });
+            
             return true;
         } catch (error) {
-            console.error('Data loading error:', error);
-            this.showError(`Failed to load compensation data: ${error.message}`);
+            // Detailed error logging
+            console.error('Data loading error:', {
+                name: error.name,
+                message: error.message,
+                stack: error.stack,
+                cause: error.cause,
+                type: error instanceof TypeError ? 'TypeError' :
+                    error instanceof SyntaxError ? 'SyntaxError' :
+                    error instanceof Error ? 'Error' : 'Unknown'
+            });
+
+            // User-friendly error message
+            let errorMessage = 'Failed to load compensation data. ';
+            
+            if (!navigator.onLine) {
+                errorMessage += 'Please check your internet connection.';
+            } else if (error instanceof SyntaxError) {
+                errorMessage += 'The data file appears to be corrupted.';
+            } else if (error.message.includes('404')) {
+                errorMessage += 'The data file could not be found.';
+            } else if (error.message.includes('Failed to fetch')) {
+                errorMessage += 'Network request failed. Please check your connection.';
+            } else {
+                errorMessage += 'An unexpected error occurred.';
+            }
+
+            errorMessage += '\n\nTechnical details: ' + error.message;
+            this.showError(errorMessage);
             throw error;
         }
     }
@@ -395,6 +561,9 @@ class LeetCodeCompensationTracker {
     }
 
     clearFilters() {
+        console.log('Clearing all filters...');
+        
+        // Reset all filters to default values
         this.filters = {
             search: '',
             company: '',
@@ -406,18 +575,116 @@ class LeetCodeCompensationTracker {
             salaryMax: 200,
             includeInterviewExp: false
         };
+        
+        // Clear all autosuggest inputs
+        ['searchInput', 'companyInput', 'locationInput', 'roleInput'].forEach(inputId => {
+            const input = document.getElementById(inputId);
+            if (input) {
+                // Clear value
+                input.value = '';
+                
+                // Reset UI elements
+                const wrapper = input.parentElement;
+                if (wrapper) {
+                    // Hide clear button
+                    const clearBtn = wrapper.querySelector('.input-group-addon');
+                    if (clearBtn) {
+                        clearBtn.style.display = 'none';
+                    }
+                    
+                    // Hide icon
+                    const icon = wrapper.querySelector('.input-icon');
+                    if (icon) {
+                        icon.style.opacity = '0';
+                    }
+                    
+                    // Hide suggestions
 
-        // Reset form inputs
-        document.getElementById('searchInput').value = '';
-        ['companyInput','locationInput','roleInput','interviewCompanyInput','interviewRoleInput','interviewYoeInput','techStackInput'].forEach(id=>{
-            const el = document.getElementById(id); if (el) el.value='';
+                    
+                    // Remove suggestions class
+                    wrapper.classList.remove('has-suggestions');
+                }
+                
+                // Trigger events
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            }
         });
-        document.getElementById('yoeMin').value = '0';
-        document.getElementById('yoeMax').value = '30';
-        document.getElementById('salaryMin').value = '1';
-        document.getElementById('salaryMax').value = '200';
 
+        // Reset all form inputs and trigger events
+        const inputs = [
+            'searchInput',
+            'companyInput',
+            'locationInput',
+            'roleInput',
+            'interviewCompanyInput',
+            'interviewRoleInput',
+            'interviewYoeInput',
+            'techStackInput'
+        ];
+        
+        // Reset all input fields
+        inputs.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                // Clear value
+                el.value = '';
+                
+                // Hide clear button
+                const clearBtn = el.parentElement?.querySelector('.input-group-addon');
+                if (clearBtn) {
+                    clearBtn.style.display = 'none';
+                }
+                
+                // Hide icon
+                const icon = el.parentElement?.querySelector('.input-icon');
+                if (icon) {
+                    icon.style.opacity = '0';
+                }
+                
+                // Hide suggestions
+                // Trigger events to update UI
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        });
+
+        // Reset range inputs to defaults
+        const ranges = {
+            'yoeMin': '0',
+            'yoeMax': '30',
+            'salaryMin': '1',
+            'salaryMax': '200'
+        };
+        
+        Object.entries(ranges).forEach(([id, value]) => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.value = value;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        });
+
+        // Reset interview experience checkbox if it exists
+        const interviewExpCheckbox = document.getElementById('includeInterviewExp');
+        if (interviewExpCheckbox) {
+            interviewExpCheckbox.checked = false;
+        }
+
+        // Reset all filter groups
+        document.querySelectorAll('.filter-group').forEach(group => {
+            group.classList.remove('has-suggestions');
+        });
+
+        // Refresh data and UI
+        this.filteredOffers = [...this.offers];
+        this.currentPage = 1;
+        
+        // Update UI
         this.applyFilters();
+        this.updateStats();
+        this.renderTable();
     }
 
     updateStats() {
@@ -899,42 +1166,228 @@ class LeetCodeCompensationTracker {
         this.renderTable(); // Re-render to update button states
     }
 
+    calculateComparisonMetrics() {
+        const salaries = this.comparisonOffers.map(o => o.total);
+        const yoes = this.comparisonOffers.map(o => o.yoe);
+        
+        return {
+            avgSalary: salaries.reduce((a, b) => a + b, 0) / salaries.length,
+            salaryDiff: Math.max(...salaries) - Math.min(...salaries),
+            avgYoe: (yoes.reduce((a, b) => a + b, 0) / yoes.length).toFixed(1),
+            maxSalary: Math.max(...salaries),
+            minSalary: Math.min(...salaries)
+        };
+    }
+
+    renderComparisonChart() {
+        const chartContainer = document.getElementById('comparisonChart');
+        if (!chartContainer || this.comparisonOffers.length < 2) return;
+
+        const chartData = this.comparisonOffers.map(offer => ({
+            name: offer.company,
+            y: offer.total,
+            base: offer.base,
+            bonus: offer.total - offer.base,
+            color: {
+                linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
+                stops: [
+                    [0, '#6366f1'],
+                    [1, '#4f46e5']
+                ]
+            }
+        }));
+
+        Highcharts.chart('comparisonChart', {
+            chart: {
+                type: 'column',
+                backgroundColor: 'transparent',
+                style: {
+                    fontFamily: 'Inter, sans-serif'
+                }
+            },
+            title: {
+                text: 'Compensation Breakdown',
+                style: {
+                    fontSize: '16px',
+                    fontWeight: '600'
+                }
+            },
+            xAxis: {
+                categories: chartData.map(d => d.name),
+                crosshair: true
+            },
+            yAxis: {
+                title: {
+                    text: 'Total Compensation (LPA)'
+                }
+            },
+            tooltip: {
+                headerFormat: '<b>{point.x}</b><br/>',
+                pointFormat: 'Base: ₹{point.base:,.1f} LPA<br/>Bonus & Others: ₹{point.bonus:,.1f} LPA<br/>Total: ₹{point.y:,.1f} LPA'
+            },
+            plotOptions: {
+                column: {
+                    borderRadius: 8,
+                    dataLabels: {
+                        enabled: true,
+                        format: '₹{y:,.0f}',
+                        style: {
+                            fontWeight: '600'
+                        }
+                    }
+                }
+            },
+            series: [{
+                name: 'Total Compensation',
+                data: chartData,
+                colorByPoint: true
+            }],
+            credits: {
+                enabled: false
+            }
+        });
+    }
+
+    exportComparison() {
+        if (this.comparisonOffers.length === 0) {
+            this.showNotification('No offers to export', 'warning');
+            return;
+        }
+
+        const metrics = this.calculateComparisonMetrics();
+        
+        // Create export data
+        const exportData = {
+            timestamp: new Date().toISOString(),
+            metrics: {
+                averageSalary: metrics.avgSalary,
+                salaryDifference: metrics.salaryDiff,
+                averageExperience: metrics.avgYoe
+            },
+            offers: this.comparisonOffers.map(o => ({
+                company: o.company,
+                role: o.mapped_role,
+                location: o.location,
+                experience: o.yoe,
+                totalCompensation: o.total,
+                baseCompensation: o.base,
+                date: o.creation_date
+            }))
+        };
+
+        // Create download link
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.setAttribute("href", dataStr);
+        downloadAnchor.setAttribute("download", "salary-comparison.json");
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        downloadAnchor.remove();
+        
+        this.showNotification('Comparison data exported successfully', 'success');
+    }
+
     updateComparisonUI() {
         const container = document.getElementById('comparisonContainer');
         if (!container) return;
 
         if (this.comparisonOffers.length === 0) {
             container.innerHTML = `
-                <div class="text-center text-muted py-4">
-                    <i class="fas fa-mouse-pointer fa-2x mb-2"></i>
-                    <p>Click on offers in the table below to add them to comparison</p>
+                <div class="comparison-empty">
+                    <i class="fas fa-chart-line"></i>
+                    <h5>No Offers Selected for Comparison</h5>
+                    <p class="text-muted">Select up to 5 offers from the table below to compare compensation packages</p>
                 </div>
             `;
             return;
         }
 
-        const comparisonHTML = this.comparisonOffers.map(offer => {
+        // Calculate comparison metrics
+        const metrics = this.calculateComparisonMetrics();
+
+        // Generate comparison HTML
+        let comparisonHTML = `
+            <div class="comparison-header">
+                <div class="comparison-title">
+                    <i class="fas fa-balance-scale"></i>
+                    Comparing ${this.comparisonOffers.length} Offers
+                </div>
+                <div class="comparison-actions">
+                    <button class="btn btn-sm btn-outline-primary" onclick="app.exportComparison()">
+                        <i class="fas fa-download"></i> Export
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="app.clearComparison()">
+                        <i class="fas fa-trash"></i> Clear All
+                    </button>
+                </div>
+            </div>
+            <div class="comparison-grid">
+        `;
+
+        // Add comparison items
+        comparisonHTML += this.comparisonOffers.map(offer => {
             const logo = this.getCompanyLogoUrl(offer.company, 'medium');
             return `
                 <div class="comparison-item">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div class="d-flex align-items-center gap-3">
-                            ${logo.html}
-                            <div>
-                                <div class="company-name fw-bold">${offer.company}</div>
-                                <div class="text-muted">${offer.mapped_role} • ${offer.yoe} years</div>
-                                <div class="salary-amount">₹${this.formatSalary(offer.total)}</div>
-                            </div>
+                    <div class="comparison-company">
+                        ${logo.html}
+                        <div class="comparison-company-info">
+                            <div class="comparison-company-name">${offer.company}</div>
+                            <div class="comparison-role">${offer.mapped_role}</div>
                         </div>
-                        <button class="btn btn-sm btn-outline-danger comparison-remove-btn" onclick="app.removeFromComparison('${offer.id}')">
+                        <button class="btn btn-sm btn-outline-danger" onclick="app.removeFromComparison('${offer.id}')">
                             <i class="fas fa-times"></i>
                         </button>
+                    </div>
+                    
+                    <div class="comparison-details">
+                        <div class="comparison-detail">
+                            <span class="comparison-detail-label">Experience</span>
+                            <span class="comparison-detail-value">${offer.yoe} years</span>
+                        </div>
+                        <div class="comparison-detail">
+                            <span class="comparison-detail-label">Location</span>
+                            <span class="comparison-detail-value">${offer.location}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="comparison-salary">
+                        <div class="comparison-salary-total">₹${this.formatSalary(offer.total)} LPA</div>
+                        <div class="comparison-salary-base">Base: ₹${this.formatSalary(offer.base)} LPA</div>
                     </div>
                 </div>
             `;
         }).join('');
 
+        comparisonHTML += `</div>`;
+
+        // Add comparison metrics
+        if (this.comparisonOffers.length >= 2) {
+            comparisonHTML += `
+                <div class="comparison-metrics">
+                    <div class="comparison-metric">
+                        <div class="h4 mb-0">₹${this.formatSalary(metrics.avgSalary)} LPA</div>
+                        <div class="text-muted">Average Package</div>
+                    </div>
+                    <div class="comparison-metric">
+                        <div class="h4 mb-0">₹${this.formatSalary(metrics.salaryDiff)} LPA</div>
+                        <div class="text-muted">Package Difference</div>
+                    </div>
+                    <div class="comparison-metric">
+                        <div class="h4 mb-0">${metrics.avgYoe} years</div>
+                        <div class="text-muted">Average Experience</div>
+                    </div>
+                </div>
+                <div class="comparison-chart" id="comparisonChart"></div>
+            `;
+        }
+
         container.innerHTML = comparisonHTML;
+
+        // Render comparison chart if we have multiple offers
+        if (this.comparisonOffers.length >= 2) {
+            this.renderComparisonChart();
+        }
     }
 
     removeFromComparison(offerId) {
@@ -1103,48 +1556,178 @@ class LeetCodeCompensationTracker {
     bindAutosuggest(inputId, optionsFn) {
         const input = document.getElementById(inputId);
         if (!input) return;
-        // Determine suggestions container id created in HTML next to inputs
-        const suggestionsContainerId = inputId.endsWith('Input')
-            ? inputId.replace('Input','Suggestions')
-            : inputId === 'discussSearch' ? 'discussSearchSuggestions' : `${inputId}Suggestions`;
-        const container = document.getElementById(suggestionsContainerId) || document.createElement('div');
-        container.className = 'autosuggest-list';
-        if (!container.id) container.id = suggestionsContainerId;
-        if (!container.parentNode) input.parentNode.appendChild(container);
 
-        const update = () => {
-            const q = input.value.trim();
-            if (q.length < 3) { container.innerHTML = ''; container.style.display = 'none'; return; }
-            const items = optionsFn().filter(v => v && v.toLowerCase().includes(q.toLowerCase())).slice(0, 8);
-            if (items.length === 0) { container.innerHTML = ''; container.style.display = 'none'; return; }
-            container.innerHTML = items.map(v=>`<div class="autosuggest-item" data-value="${v}">${v}</div>`).join('');
-            container.style.display = 'block';
-        };
-        input.addEventListener('input', this.debounce(update, 150));
-        input.addEventListener('focus', update);
-        document.addEventListener('click', (e)=>{
-            if (!container.contains(e.target) && e.target !== input) container.style.display='none';
+        // Initialize Bloodhound suggestion engine
+        const engine = new Bloodhound({
+            datumTokenizer: Bloodhound.tokenizers.whitespace,
+            queryTokenizer: Bloodhound.tokenizers.whitespace,
+            local: optionsFn()
         });
-        container.addEventListener('click', (e)=>{
-            const item = e.target.closest('.autosuggest-item');
-            if (!item) return;
-            input.value = item.getAttribute('data-value');
-            container.style.display = 'none';
-            // map input to filter key
-            const map = { companyInput:'company', locationInput:'location', roleInput:'role', interviewCompanyInput:'company', interviewRoleInput:'role', interviewYoeInput:'yoe', techStackInput:'tech', discussSearch:'discuss'};
-            const key = map[inputId];
-            if (key === 'yoe') {
-                // restrict by mapped_yoe using search filter
-                this.filters.search = input.value;
-            } else if (key && key !== 'discuss') {
-                this.filters[key] = input.value;
+
+        // Initialize icon and clear button
+        const inputWrapper = input.parentElement;
+        const iconMap = {
+            'companyInput': 'building',
+            'locationInput': 'map-marker-alt',
+            'roleInput': 'briefcase',
+            'interviewCompanyInput': 'building',
+            'interviewRoleInput': 'briefcase',
+            'interviewYoeInput': 'clock',
+            'techStackInput': 'code',
+            'discussSearch': 'search'
+        };
+
+        // Add icon
+        const icon = document.createElement('i');
+        icon.className = `fas fa-${iconMap[inputId] || 'search'} input-icon`;
+        icon.style.opacity = '0';
+        inputWrapper.appendChild(icon);
+
+        // Add clear button
+        const clearBtn = document.createElement('button');
+        clearBtn.className = 'input-group-addon';
+        clearBtn.innerHTML = '<i class="fas fa-times clear-input"></i>';
+        clearBtn.style.display = 'none';
+        inputWrapper.appendChild(clearBtn);
+
+        // Initialize Typeahead
+        $(input).typeahead({
+            hint: true,
+            highlight: true,
+            minLength: 1
+        },
+        {
+            name: 'suggestions',
+            source: engine,
+            limit: 8,
+            templates: {
+                suggestion: (data) => {
+                    const meta = this.getSuggestionMeta(inputId, data);
+                    return `
+
+                    `;
+                },
+
             }
+        });
+
+        // Show icon on focus
+        input.addEventListener('focus', () => {
+            if (input.value.trim()) {
+                icon.style.opacity = '1';
+            }
+        });
+
+        // Hide icon on blur
+        input.addEventListener('blur', () => {
+            if (!input.value.trim()) {
+                icon.style.opacity = '0';
+            }
+        });
+
+        // Handle input changes
+        input.addEventListener('input', () => {
+            const value = input.value.trim();
+            clearBtn.style.display = value ? 'flex' : 'none';
+            icon.style.opacity = value ? '1' : '0';
+        });
+
+        // Clear button functionality
+        clearBtn.addEventListener('click', () => {
+            input.value = '';
+            clearBtn.style.display = 'none';
+            icon.style.opacity = '0';
+            input.focus();
+            
+            // Reset filters and trigger update
             if (inputId === 'discussSearch') {
                 this.renderDiscussList();
             } else {
-                this.applyFilters();
+                const map = { 
+                    companyInput: 'company', 
+                    locationInput: 'location', 
+                    roleInput: 'role',
+                    interviewCompanyInput: 'company',
+                    interviewRoleInput: 'role',
+                    interviewYoeInput: 'yoe',
+                    techStackInput: 'tech'
+                };
+                const key = map[inputId];
+                if (key) {
+                    this.filters[key] = '';
+                    if (['company', 'location', 'role'].includes(key)) {
+                        this.filters.search = '';
+                        if (document.getElementById('searchInput')) {
+                            document.getElementById('searchInput').value = '';
+                        }
+                    }
+                    this.applyFilters();
+                }
+            }
+            
+            input.dispatchEvent(new Event('input'));
+        });
+
+        // Handle selection
+        $(input).on('typeahead:select', (e, suggestion) => {
+            const map = { 
+                companyInput: 'company', 
+                locationInput: 'location', 
+                roleInput: 'role',
+                interviewCompanyInput: 'company',
+                interviewRoleInput: 'role',
+                interviewYoeInput: 'yoe',
+                techStackInput: 'tech'
+            };
+            
+            const key = map[inputId];
+            if (key) {
+                this.filters[key] = suggestion;
+                if (inputId === 'discussSearch') {
+                    this.renderDiscussList();
+                } else {
+                    this.applyFilters();
+                }
             }
         });
+    }
+
+    getSuggestionIcon(inputId, value) {
+        const iconMap = {
+            companyInput: 'building',
+            locationInput: 'map-marker-alt',
+            roleInput: 'briefcase',
+            interviewCompanyInput: 'building',
+            interviewRoleInput: 'briefcase',
+            interviewYoeInput: 'clock',
+            techStackInput: 'code',
+            discussSearch: 'search'
+        };
+        return iconMap[inputId] || 'tag';
+    }
+
+    getSuggestionMeta(inputId, value) {
+        if (inputId.includes('company')) {
+            const count = this.offers.filter(o => o.company === value).length;
+            return `${count} offers`;
+        }
+        if (inputId.includes('role')) {
+            const avg = this.getAverageSalary(value);
+            return avg ? `Avg: ₹${this.formatSalary(avg)} LPA` : '';
+        }
+        if (inputId === 'locationInput') {
+            const count = this.offers.filter(o => o.location === value).length;
+            return `${count} positions`;
+        }
+        return '';
+    }
+
+    getAverageSalary(role) {
+        const salaries = this.offers
+            .filter(o => o.mapped_role === role)
+            .map(o => o.total);
+        if (salaries.length === 0) return null;
+        return salaries.reduce((a, b) => a + b, 0) / salaries.length;
     }
 
     buildDiscussSearchCorpus() {
@@ -1187,35 +1770,75 @@ class LeetCodeCompensationTracker {
         const stored = localStorage.getItem('leetcomp_theme') || 'light';
         const themeToggle = document.getElementById('themeToggle');
         
-        if (stored === 'dark') {
-            document.body.classList.add('dark');
-            if (themeToggle) themeToggle.checked = true;
-        }
+        // Set initial theme
+        this.setTheme(stored === 'dark');
         
-        // Add event listener for toggle
+        // Set toggle state
         if (themeToggle) {
+            themeToggle.checked = stored === 'dark';
             themeToggle.addEventListener('change', (e) => {
                 this.toggleTheme(e.target.checked);
             });
         }
-        
-        this.updateChartTheme(stored === 'dark');
     }
 
     toggleTheme(isDark) {
+        this.setTheme(isDark);
+        localStorage.setItem('leetcomp_theme', isDark ? 'dark' : 'light');
+    }
+
+    setTheme(isDark) {
         // Update body class
         document.body.classList.toggle('dark', isDark);
         
-        // Store preference
-        localStorage.setItem('leetcomp_theme', isDark ? 'dark' : 'light');
+        // Update chart theme
+        const theme = {
+            chart: {
+                backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                style: {
+                    color: isDark ? '#e2e8f0' : '#1e293b'
+                }
+            },
+            title: {
+                style: { color: isDark ? '#e2e8f0' : '#1e293b' }
+            },
+            subtitle: {
+                style: { color: isDark ? '#94a3b8' : '#64748b' }
+            },
+            xAxis: {
+                gridLineColor: isDark ? '#2d3748' : '#e2e8f0',
+                labels: { style: { color: isDark ? '#94a3b8' : '#64748b' } },
+                lineColor: isDark ? '#2d3748' : '#e2e8f0',
+                tickColor: isDark ? '#2d3748' : '#e2e8f0'
+            },
+            yAxis: {
+                gridLineColor: isDark ? '#2d3748' : '#e2e8f0',
+                labels: { style: { color: isDark ? '#94a3b8' : '#64748b' } }
+            },
+            legend: {
+                itemStyle: { color: isDark ? '#e2e8f0' : '#1e293b' },
+                itemHoverStyle: { color: isDark ? '#ffffff' : '#000000' }
+            },
+            plotOptions: {
+                series: {
+                    borderRadius: 8,
+                    opacity: isDark ? 0.8 : 1
+                }
+            },
+            colors: isDark ? 
+                ['#818cf8', '#a78bfa', '#c084fc', '#f472b6', '#22c55e'] :
+                ['#6366f1', '#8b5cf6', '#a855f7', '#ec4899', '#10b981']
+        };
         
-        // Update charts
-        this.updateChartTheme(isDark);
+        Highcharts.setOptions(theme);
         
-        // Re-render charts after transition
-        setTimeout(() => {
+        // Re-render all charts with new theme
+        requestAnimationFrame(() => {
             this.renderCharts();
-        }, 300);
+            if (this.comparisonOffers.length >= 2) {
+                this.renderComparisonChart();
+            }
+        });
     }
 
     updateChartTheme(isDark) {
@@ -1348,7 +1971,28 @@ class LeetCodeCompensationTracker {
     }
 
     showError(message) {
+        // Show error notification
         this.showNotification(message, 'error');
+        
+        // Also show error in the main container
+        const container = document.querySelector('.main-container');
+        if (container) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.innerHTML = `
+                <div class="alert alert-danger m-3" role="alert">
+                    <h4 class="alert-heading"><i class="fas fa-exclamation-triangle me-2"></i>Error</h4>
+                    <p class="mb-0">${message}</p>
+                    <hr>
+                    <p class="mb-0">
+                        <button class="btn btn-outline-danger btn-sm" onclick="window.location.reload()">
+                            <i class="fas fa-sync-alt me-1"></i>Refresh Page
+                        </button>
+                    </p>
+                </div>
+            `;
+            container.insertBefore(errorDiv, container.firstChild);
+        }
     }
 
     initializeAnimations() {
