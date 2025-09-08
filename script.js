@@ -54,17 +54,67 @@ class LeetCodeCompensationTracker {
     async loadData() {
         try {
             const response = await fetch('data/parsed_comps.json');
-            if (!response.ok) throw new Error('Failed to fetch data');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
             
-            this.offers = await response.json();
+            const rawOffers = await response.json();
+            if (!Array.isArray(rawOffers)) {
+                throw new Error('Invalid data format: Expected an array');
+            }
+            
+            // Validate and clean data before deduplication
+            const validOffers = rawOffers.filter(offer => {
+                return offer && 
+                       typeof offer === 'object' &&
+                       typeof offer.total === 'number' &&
+                       !isNaN(offer.total) &&
+                       offer.company &&
+                       typeof offer.company === 'string' &&
+                       offer.role &&
+                       typeof offer.role === 'string' &&
+                       offer.location &&
+                       typeof offer.location === 'string' &&
+                       offer.yoe &&
+                       typeof offer.yoe === 'number' &&
+                       !isNaN(offer.yoe) &&
+                       offer.creation_date &&
+                       typeof offer.creation_date === 'string';
+            });
+
+            if (validOffers.length === 0) {
+                throw new Error('No valid offers found in the data');
+            }
+
+            // Deduplicate based on unique combination of properties
+            const uniqueKey = new Set();
+            this.offers = validOffers.filter(offer => {
+                const key = `${offer.company}_${offer.role}_${offer.location}_${offer.yoe}_${offer.total}_${offer.creation_date}`;
+                if (uniqueKey.has(key)) return false;
+                uniqueKey.add(key);
+                return true;
+            });
+            
+            // Sort by date (newest first)
+            this.offers.sort((a, b) => {
+                const dateA = new Date(a.creation_date);
+                const dateB = new Date(b.creation_date);
+                if (isNaN(dateA.getTime()) || isNaN(dateB.getTime())) {
+                    return 0; // Invalid dates are treated equally
+                }
+                return dateB - dateA;
+            });
+            
             this.filteredOffers = [...this.offers];
             
-            // Load company logos
+            // Load and cache company logos
             await this.loadCompanyLogos();
             
-            console.log(`Loaded ${this.offers.length} offers`);
+            console.log(`Loaded ${this.offers.length} unique offers (${rawOffers.length - validOffers.length} invalid entries skipped)`);
+            return true;
         } catch (error) {
             console.error('Data loading error:', error);
+            this.showError(`Failed to load compensation data: ${error.message}`);
             throw error;
         }
     }
@@ -78,35 +128,151 @@ class LeetCodeCompensationTracker {
         });
     }
 
-    getCompanyLogoUrl(company) {
-        // Placeholder for company logo URLs
-        // In a real implementation, you'd have actual logo URLs
-        const logoMap = {
-            'Google': 'https://logo.clearbit.com/google.com',
-            'Microsoft': 'https://logo.clearbit.com/microsoft.com',
-            'Amazon': 'https://logo.clearbit.com/amazon.com',
-            'Apple': 'https://logo.clearbit.com/apple.com',
-            'Meta': 'https://logo.clearbit.com/meta.com',
-            'Netflix': 'https://logo.clearbit.com/netflix.com',
-            'Uber': 'https://logo.clearbit.com/uber.com',
-            'Airbnb': 'https://logo.clearbit.com/airbnb.com',
-            'Walmart': 'https://logo.clearbit.com/walmart.com',
-            'Walmart Global Tech': 'https://logo.clearbit.com/walmart.com',
-            'Ibm isl': 'https://logo.clearbit.com/ibm.com',
-            'IBM': 'https://logo.clearbit.com/ibm.com',
-            'Blinkit': 'https://logo.clearbit.com/blinkit.com',
-            'Visa': 'https://logo.clearbit.com/visa.com',
-            'Visa Inc': 'https://logo.clearbit.com/visa.com',
-            'Paytm': 'https://logo.clearbit.com/paytm.com',
-            'Swiggy': 'https://logo.clearbit.com/swiggy.com',
-            'Zomato': 'https://logo.clearbit.com/zomato.com',
-            'Flipkart': 'https://logo.clearbit.com/flipkart.com',
-            'PhonePe': 'https://logo.clearbit.com/phonepe.com',
-            'Ola': 'https://logo.clearbit.com/olacabs.com',
-            'Rapido': 'https://logo.clearbit.com/rapido.bike',
-            'BigBasket': 'https://logo.clearbit.com/bigbasket.com'
+    getCompanyLogoUrl(company, size = 'regular') {
+        // Size configurations for different logo sizes
+        const sizes = {
+            'small': 'company-logo-sm',
+            'regular': 'company-logo',
+            'medium': 'company-logo-md',
+            'large': 'company-logo-lg'
         };
-        return logoMap[company] || `https://ui-avatars.com/api/?name=${encodeURIComponent(company)}&background=6366f1&color=fff&size=32`;
+        
+        // Clean company name for better logo matching
+        const cleanName = (company || '').trim().toLowerCase()
+            .replace(/\s+/g, '')
+            .replace(/[^a-z0-9]/g, '');
+        
+        // Additional company-specific mappings for better logo matching
+        const companyMappings = {
+            'meta': 'facebook',
+            'alphabet': 'google',
+            'bytedance': 'tiktok',
+            'metaplatforms': 'facebook',
+            'alphabetinc': 'google',
+            'googlelimited': 'google',
+            'microsoftcorporation': 'microsoft',
+            'amazoncom': 'amazon',
+            'facebookinc': 'facebook',
+            'appleinc': 'apple',
+            'walmartglobaltech': 'walmart',
+            'linkedincorporation': 'linkedin',
+            'one97communications': 'paytm',
+            'bundltechnologies': 'swiggy',
+            'anitechnologies': 'ola',
+            'innovativeretail': 'bigbasket',
+            'dreamplug': 'cred'
+        };
+
+        const mappedName = companyMappings[cleanName] || cleanName;
+        
+        // Try to get logo from Clearbit first
+        const clearbitUrl = `https://logo.clearbit.com/${mappedName}.com`;
+        
+        // Enhanced UI Avatar configuration for better fallback logos
+        const uiAvatarConfig = {
+            name: encodeURIComponent(company || 'Unknown'),
+            background: this.getCompanyColor(company),
+            size: size === 'large' ? 128 : size === 'medium' ? 96 : size === 'small' ? 48 : 64,
+            bold: true,
+            format: 'svg'
+        };
+        
+        const uiAvatarUrl = `https://ui-avatars.com/api/?${Object.entries(uiAvatarConfig)
+            .map(([key, value]) => `${key}=${value}`)
+            .join('&')}`;
+        
+        // Create the logo HTML with proper classes and fallback
+        const logoClass = sizes[size] || sizes.regular;
+        const logoHtml = `
+            <div class="company-logo-wrapper">
+                <img 
+                    class="${logoClass}"
+                    src="${clearbitUrl}"
+                    onerror="this.onerror=null; this.src='${uiAvatarUrl}'"
+                    alt="${company} logo"
+                    title="${company}"
+                    loading="lazy"
+                >
+            </div>`;
+        
+        return {
+            html: logoHtml,
+            primary: clearbitUrl,
+            fallback: uiAvatarUrl
+        };
+    }
+
+    getCompanyColor(company) {
+        // Enhanced color mapping for consistent brand colors
+        const colors = {
+            'google': '4285f4',
+            'meta': '1877f2',
+            'facebook': '1877f2',
+            'amazon': 'ff9900',
+            'microsoft': '00a4ef',
+            'apple': '999999',
+            'netflix': 'e50914',
+            'uber': '000000',
+            'airbnb': 'ff5a5f',
+            'twitter': '1da1f2',
+            'linkedin': '0a66c2',
+            'paypal': '003087',
+            'adobe': 'ff0000',
+            'salesforce': '00a1e0',
+            'oracle': 'f80000',
+            'ibm': '052fad',
+            'intel': '0071c5',
+            'visa': '1a1f71',
+            'mastercard': 'eb001b',
+            // Indian companies
+            'flipkart': '2874f0',
+            'paytm': '00b9f5',
+            'swiggy': 'fc8019',
+            'zomato': 'e23744',
+            'phonepe': '5f259f',
+            'razorpay': '02042b',
+            'cred': '0f3057',
+            'meesho': 'f43397'
+        };
+
+        // Get company key by removing spaces and converting to lowercase
+        const key = (company || '').toLowerCase().replace(/\s+/g, '');
+        return colors[key] || this.getRandomBrandColor(company);
+    }
+
+    getRandomBrandColor(company) {
+        // Generate consistent color based on company name
+        const colors = [
+            '6366f1', '8b5cf6', 'a855f7', 'd946ef',
+            'ec4899', 'f43f5e', 'ef4444', 'f97316',
+            'f59e0b', 'eab308', '84cc16', '22c55e',
+            '10b981', '14b8a6', '06b6d4', '0ea5e9'
+        ];
+        
+        const hash = (company || 'unknown')
+            .toLowerCase()
+            .split('')
+            .reduce((acc, char) => ((acc << 5) - acc) + char.charCodeAt(0), 0);
+        
+        return colors[Math.abs(hash) % colors.length];
+    }
+
+    getDefaultLogo(company, size = 32) {
+        // Enhanced default logo generation
+        const colors = {
+            'A': '6366f1', 'B': '8b5cf6', 'C': 'a855f7', 'D': 'd946ef',
+            'E': 'ec4899', 'F': 'f43f5e', 'G': 'ef4444', 'H': 'f97316',
+            'I': 'f59e0b', 'J': 'eab308', 'K': '84cc16', 'L': '22c55e',
+            'M': '10b981', 'N': '14b8a6', 'O': '06b6d4', 'P': '0ea5e9',
+            'Q': '3b82f6', 'R': '6366f1', 'S': '8b5cf6', 'T': 'a855f7',
+            'U': 'd946ef', 'V': 'ec4899', 'W': 'f43f5e', 'X': 'ef4444',
+            'Y': 'f97316', 'Z': 'f59e0b'
+        };
+        
+        const firstLetter = (company || 'A').charAt(0).toUpperCase();
+        const background = colors[firstLetter] || '6366f1';
+        
+        return `https://ui-avatars.com/api/?name=${encodeURIComponent(company || 'Unknown')}&background=${background}&color=fff&size=${size}&bold=true&format=svg`;
     }
 
     setupEventListeners() {
@@ -255,17 +421,57 @@ class LeetCodeCompensationTracker {
     }
 
     updateStats() {
-        const totalOffers = this.filteredOffers.length;
-        const avgSalary = totalOffers > 0 ? 
-            (this.filteredOffers.reduce((sum, offer) => sum + offer.total, 0) / totalOffers).toFixed(1) : 0;
-        const totalCompanies = new Set(this.filteredOffers.map(offer => offer.company)).size;
-        
-        document.getElementById('totalOffers').textContent = totalOffers.toLocaleString();
-        document.getElementById('avgSalary').textContent = avgSalary;
-        document.getElementById('totalCompanies').textContent = totalCompanies.toLocaleString();
-        
-        // Update last updated time
-        this.updateLastUpdatedTime();
+        try {
+            const totalOffers = this.filteredOffers.length;
+            
+            // Calculate average salary with validation
+            const validSalaries = this.filteredOffers.filter(offer => typeof offer.total === 'number' && !isNaN(offer.total));
+            const avgSalary = validSalaries.length > 0 ? 
+                (validSalaries.reduce((sum, offer) => sum + offer.total, 0) / validSalaries.length).toFixed(1) : 0;
+            
+            // Get unique companies
+            const totalCompanies = new Set(
+                this.filteredOffers
+                    .filter(offer => offer.company && typeof offer.company === 'string')
+                    .map(offer => offer.company)
+            ).size;
+            
+            // Update DOM safely
+            const elements = {
+                totalOffers: document.getElementById('totalOffers'),
+                avgSalary: document.getElementById('avgSalary'),
+                totalCompanies: document.getElementById('totalCompanies')
+            };
+            
+            if (elements.totalOffers) elements.totalOffers.textContent = totalOffers.toLocaleString();
+            if (elements.avgSalary) elements.avgSalary.textContent = avgSalary;
+            if (elements.totalCompanies) elements.totalCompanies.textContent = totalCompanies.toLocaleString();
+            
+            // Update trends if data available
+            if (totalOffers > 0) {
+                const previousPeriodOffers = this.offers
+                    .filter(o => new Date(o.creation_date) < new Date(Date.now() - 30 * 24 * 60 * 60 * 1000))
+                    .length;
+                const trend = totalOffers > previousPeriodOffers ? 'up' : 'down';
+                this.updateTrendIndicators(trend);
+            }
+            
+            // Update last updated time
+            this.updateLastUpdatedTime();
+            
+        } catch (error) {
+            console.error('Error updating stats:', error);
+            this.showError('Failed to update statistics. Some values may be incorrect.');
+        }
+    }
+
+    updateTrendIndicators(trend) {
+        const trendElements = document.querySelectorAll('.stat-trend');
+        trendElements.forEach(el => {
+            el.innerHTML = trend === 'up' ? 
+                '<i class="fas fa-arrow-up text-success"></i> Trending Up' :
+                '<i class="fas fa-arrow-down text-danger"></i> Trending Down';
+        });
     }
 
     async updateLastUpdatedTime() {
@@ -298,10 +504,46 @@ class LeetCodeCompensationTracker {
     }
 
     renderCharts() {
-        this.renderSalaryDistributionChart();
-        this.renderExperienceChart();
-        this.renderCompanyComparisonChart();
-        this.renderTopCompaniesChart();
+        // Debounce chart rendering to prevent performance issues
+        if (this.chartRenderTimeout) clearTimeout(this.chartRenderTimeout);
+        
+        this.chartRenderTimeout = setTimeout(() => {
+            try {
+                if (this.filteredOffers.length === 0) {
+                    this.showNoDataMessage();
+                    return;
+                }
+                
+                // Render charts in parallel for better performance
+                Promise.all([
+                    this.renderSalaryDistributionChart(),
+                    this.renderExperienceChart(),
+                    this.renderCompanyComparisonChart(),
+                    this.renderTopCompaniesChart()
+                ]).catch(error => {
+                    console.error('Chart rendering error:', error);
+                    this.showError('Failed to render some charts. Please try refreshing the page.');
+                });
+            } catch (error) {
+                console.error('Chart initialization error:', error);
+                this.showError('Failed to initialize charts. Please check your browser console for details.');
+            }
+        }, 250); // Debounce time for chart rendering
+    }
+
+    showNoDataMessage() {
+        ['salaryDistributionChart', 'experienceChart', 'companyComparisonChart', 'topCompaniesChart'].forEach(id => {
+            const container = document.getElementById(id);
+            if (container) {
+                container.innerHTML = `
+                    <div class="text-center py-5">
+                        <i class="fas fa-chart-bar text-muted fa-3x mb-3"></i>
+                        <h5 class="text-muted">No data available</h5>
+                        <p class="text-muted">Try adjusting your filters to see the charts</p>
+                    </div>
+                `;
+            }
+        });
     }
 
     renderSalaryDistributionChart() {
@@ -558,7 +800,7 @@ class LeetCodeCompensationTracker {
             return;
         }
 
-    const table = document.createElement('table');
+        const table = document.createElement('table');
         table.className = 'table table-hover';
         
         // Table header
@@ -584,13 +826,12 @@ class LeetCodeCompensationTracker {
             row.className = 'fade-in';
             row.style.animationDelay = `${index * 0.1}s`;
             
+            const logo = this.getCompanyLogoUrl(offer.company, 'regular');
+            
             row.innerHTML = `
                 <td>
                     <div class="company-info">
-                        <img src="${this.companyLogos.get(offer.company)}" 
-                             alt="${offer.company}" 
-                             class="company-logo"
-                             onerror="this.src='https://ui-avatars.com/api/?name=${encodeURIComponent(offer.company)}&background=6366f1&color=fff&size=32'">
+                        ${logo.html}
                         <div>
                             <div class="company-name">${offer.company}</div>
                             <div class="company-location">${offer.location}</div>
@@ -633,8 +874,8 @@ class LeetCodeCompensationTracker {
         });
         table.appendChild(tbody);
 
-    container.innerHTML = '';
-    container.appendChild(table);
+        container.innerHTML = '';
+        container.appendChild(table);
 
         this.updatePaginationInfo();
     }
@@ -672,20 +913,26 @@ class LeetCodeCompensationTracker {
             return;
         }
 
-        const comparisonHTML = this.comparisonOffers.map(offer => `
-            <div class="comparison-item">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <div class="fw-bold">${offer.company}</div>
-                        <div class="text-muted">${offer.mapped_role} • ${offer.yoe} years</div>
-                        <div class="salary-amount">₹${this.formatSalary(offer.total)}</div>
+        const comparisonHTML = this.comparisonOffers.map(offer => {
+            const logo = this.getCompanyLogoUrl(offer.company, 'medium');
+            return `
+                <div class="comparison-item">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center gap-3">
+                            ${logo.html}
+                            <div>
+                                <div class="company-name fw-bold">${offer.company}</div>
+                                <div class="text-muted">${offer.mapped_role} • ${offer.yoe} years</div>
+                                <div class="salary-amount">₹${this.formatSalary(offer.total)}</div>
+                            </div>
+                        </div>
+                        <button class="btn btn-sm btn-outline-danger comparison-remove-btn" onclick="app.removeFromComparison('${offer.id}')">
+                            <i class="fas fa-times"></i>
+                        </button>
                     </div>
-                    <button class="btn btn-sm btn-outline-danger" onclick="app.removeFromComparison('${offer.id}')">
-                        <i class="fas fa-times"></i>
-                    </button>
                 </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
 
         container.innerHTML = comparisonHTML;
     }
@@ -787,32 +1034,43 @@ class LeetCodeCompensationTracker {
             return;
         }
 
-        const experiencesHTML = interviewOffers.slice(0, 20).map((offer, index) => `
-            <div class="card mb-3 fade-in" style="animation-delay: ${index * 0.1}s">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div>
-                            <h6 class="card-title mb-1">${offer.company} - ${offer.mapped_role}</h6>
-                            <div class="text-muted small">
-                                <i class="fas fa-map-marker-alt me-1"></i>${offer.location}
-                                <i class="fas fa-clock me-1 ms-3"></i>${offer.yoe} years
-                                <i class="fas fa-calendar me-1 ms-3"></i>${offer.creation_date}
+        const experiencesHTML = interviewOffers.slice(0, 20).map((offer, index) => {
+            const logo = this.getCompanyLogoUrl(offer.company, 'large');
+            return `
+                <div class="card mb-3 fade-in interview-card" style="animation-delay: ${index * 0.1}s">
+                    <div class="card-body">
+                        <div class="d-flex gap-3 mb-3">
+                            ${logo.html}
+                            <div class="flex-grow-1">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div>
+                                        <h6 class="card-title mb-1">
+                                            <span class="company-name">${offer.company}</span> - 
+                                            <span class="role-name">${offer.mapped_role}</span>
+                                        </h6>
+                                        <div class="text-muted small">
+                                            <i class="fas fa-map-marker-alt me-1"></i>${offer.location}
+                                            <i class="fas fa-clock me-1 ms-3"></i>${offer.yoe} years
+                                            <i class="fas fa-calendar me-1 ms-3"></i>${offer.creation_date}
+                                        </div>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="salary-amount">₹${this.formatSalary(offer.total)}</div>
+                                        <div class="salary-base">Base: ₹${this.formatSalary(offer.base)}</div>
+                                    </div>
+                                </div>
+                                <div class="tech-stack-tags mt-3">
+                                    ${this.generateTechStackTags(offer)}
+                                </div>
+                                <a href="${offer.interview_exp}" target="_blank" class="btn btn-primary btn-sm mt-3">
+                                    <i class="fas fa-external-link-alt me-1"></i>Read Interview Experience
+                                </a>
                             </div>
                         </div>
-                        <div class="text-end">
-                            <div class="salary-amount">₹${this.formatSalary(offer.total)}</div>
-                            <div class="salary-base">Base: ₹${this.formatSalary(offer.base)}</div>
-                        </div>
                     </div>
-                    <div class="mb-3">
-                        ${this.generateTechStackTags(offer)}
-                    </div>
-                    <a href="${offer.interview_exp}" target="_blank" class="btn btn-primary btn-sm">
-                        <i class="fas fa-external-link-alt me-1"></i>Read Interview Experience
-                    </a>
                 </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
 
         container.innerHTML = experiencesHTML;
     }
@@ -926,21 +1184,140 @@ class LeetCodeCompensationTracker {
     }
 
     initializeTheme() {
-        const stored = localStorage.getItem('leetcomp_theme');
-        if (stored === 'dark') document.body.classList.add('dark');
-        this.updateThemeIcon();
+        const stored = localStorage.getItem('leetcomp_theme') || 'light';
+        const themeToggle = document.getElementById('themeToggle');
+        
+        if (stored === 'dark') {
+            document.body.classList.add('dark');
+            if (themeToggle) themeToggle.checked = true;
+        }
+        
+        // Add event listener for toggle
+        if (themeToggle) {
+            themeToggle.addEventListener('change', (e) => {
+                this.toggleTheme(e.target.checked);
+            });
+        }
+        
+        this.updateChartTheme(stored === 'dark');
     }
 
-    toggleTheme() {
-        document.body.classList.toggle('dark');
-        localStorage.setItem('leetcomp_theme', document.body.classList.contains('dark') ? 'dark' : 'light');
-        this.updateThemeIcon();
+    toggleTheme(isDark) {
+        // Update body class
+        document.body.classList.toggle('dark', isDark);
+        
+        // Store preference
+        localStorage.setItem('leetcomp_theme', isDark ? 'dark' : 'light');
+        
+        // Update charts
+        this.updateChartTheme(isDark);
+        
+        // Re-render charts after transition
+        setTimeout(() => {
+            this.renderCharts();
+        }, 300);
     }
 
-    updateThemeIcon() {
-        const btn = document.getElementById('themeToggle');
-        if (!btn) return;
-        btn.innerHTML = document.body.classList.contains('dark') ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
+    updateChartTheme(isDark) {
+        const theme = {
+            colors: isDark ? 
+                ['#818cf8', '#a78bfa', '#c084fc', '#f472b6', '#22c55e'] :
+                ['#6366f1', '#8b5cf6', '#a855f7', '#ec4899', '#10b981'],
+            chart: {
+                backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                style: {
+                    color: isDark ? '#e2e8f0' : '#1e293b'
+                }
+            },
+            title: {
+                style: { color: isDark ? '#e2e8f0' : '#1e293b' }
+            },
+            subtitle: {
+                style: { color: isDark ? '#94a3b8' : '#64748b' }
+            },
+            xAxis: {
+                gridLineColor: isDark ? '#2d3748' : '#e2e8f0',
+                labels: { style: { color: isDark ? '#94a3b8' : '#64748b' } },
+                lineColor: isDark ? '#2d3748' : '#e2e8f0',
+                tickColor: isDark ? '#2d3748' : '#e2e8f0'
+            },
+            yAxis: {
+                gridLineColor: isDark ? '#2d3748' : '#e2e8f0',
+                labels: { style: { color: isDark ? '#94a3b8' : '#64748b' } }
+            },
+            legend: {
+                itemStyle: { color: isDark ? '#e2e8f0' : '#1e293b' },
+                itemHoverStyle: { color: isDark ? '#ffffff' : '#000000' }
+            },
+            plotOptions: {
+                series: {
+                    borderRadius: 8,
+                    opacity: isDark ? 0.8 : 1
+                }
+            }
+        };
+        
+        Highcharts.setOptions(theme);
+    }
+
+    updateChartTheme() {
+        const isDark = document.body.classList.contains('dark');
+        
+        // Update Highcharts theme
+        Highcharts.theme = {
+            colors: ['#6366f1', '#818cf8', '#c084fc', '#f472b6', '#10b981'],
+            chart: {
+                backgroundColor: isDark ? '#1a1c2c' : '#ffffff',
+                style: {
+                    fontFamily: 'Inter, sans-serif'
+                }
+            },
+            title: {
+                style: {
+                    color: isDark ? '#e2e8f0' : '#1e293b'
+                }
+            },
+            subtitle: {
+                style: {
+                    color: isDark ? '#94a3b8' : '#64748b'
+                }
+            },
+            xAxis: {
+                gridLineColor: isDark ? '#2d3748' : '#e2e8f0',
+                labels: {
+                    style: {
+                        color: isDark ? '#94a3b8' : '#64748b'
+                    }
+                },
+                lineColor: isDark ? '#2d3748' : '#e2e8f0',
+                tickColor: isDark ? '#2d3748' : '#e2e8f0'
+            },
+            yAxis: {
+                gridLineColor: isDark ? '#2d3748' : '#e2e8f0',
+                labels: {
+                    style: {
+                        color: isDark ? '#94a3b8' : '#64748b'
+                    }
+                }
+            },
+            legend: {
+                itemStyle: {
+                    color: isDark ? '#e2e8f0' : '#1e293b'
+                },
+                itemHoverStyle: {
+                    color: isDark ? '#ffffff' : '#000000'
+                }
+            },
+            plotOptions: {
+                series: {
+                    borderWidth: 0,
+                    borderRadius: 8
+                }
+            }
+        };
+        
+        // Apply the theme
+        Highcharts.setOptions(Highcharts.theme);
     }
 
     formatSalary(amount) {
