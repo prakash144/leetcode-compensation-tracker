@@ -7,10 +7,10 @@
 
 .tt-input {
     width: 100%;
-    padding: 0.75rem 1rem;
+    padding: 0.75rem 2.5rem !important;
     font-size: 0.95rem;
     border: 2px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 12px;
     background-color: var(--light-bg) !important;
     color: var(--text-primary);
 }
@@ -24,43 +24,43 @@
 .tt-menu {
     width: 100%;
     margin-top: 8px;
+    padding: 8px 0;
     background-color: var(--light-bg);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 12px;
     box-shadow: var(--shadow-lg);
-    max-height: 250px;
+    max-height: 300px;
     overflow-y: auto;
     position: absolute;
+    top: 100%;
+    left: 0;
     z-index: 1000;
 }
 
 .tt-suggestion {
+    padding: 0;
+    margin: 0;
+}
+
+.autosuggest-item {
     padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: all 0.2s ease;
     cursor: pointer;
+}
+
+.item-icon {
+    color: var(--primary-color);
+    width: 16px;
+    text-align: center;
+    font-size: 14px;
+}
+
+.item-label {
+    flex: 1;
     color: var(--text-primary);
-}
-
-.tt-suggestion:hover,
-.tt-suggestion.tt-cursor {
-    background-color: var(--primary-color);
-    color: white;
-}
-
-/* Dark mode styles */
-body.dark .tt-input {
-    background-color: var(--dark-input) !important;
-    border-color: var(--dark-border);
-    color: var(--dark-text);
-}
-
-body.dark .tt-menu {
-    background-color: var(--dark-input);
-    border-color: var(--dark-border);
-}
-
-body.dark .tt-suggestion {
-    color: var(--dark-text);
-}
 }
 
 .item-meta {

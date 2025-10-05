@@ -60,3 +60,6 @@ $ python leetcomp/refresh.py && python leetcomp/parse.py
 - [x] Filters for Yoe, Compensation
 - [x] Search for Companies and Locations
 
+## Contributions
+
+PRs are welcome but please go through [CONTRIBUTING.md](CONTRIBUTING.md) before raising a PR.
