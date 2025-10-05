@@ -1139,20 +1139,22 @@ class LeetCodeCompensationTracker {
 
         // Table body
         const tbody = document.createElement('tbody');
-        pageData.forEach((offer, index) => {
+        pageData.forEach((offer, idx) => {
             const row = document.createElement('tr');
             row.className = 'fade-in';
-            row.style.animationDelay = `${index * 0.1}s`;
-            
-            const logo = this.getCompanyLogoUrl(offer.company, 'regular');
-            
+            row.style.animationDelay = `${idx * 0.1}s`;
+
+            const logo = this.getCompanyLogoUrl(offer.company, 'small');
+            const isSelected = this.comparisonOffers.some(co => co.id === offer.id);
+            if (isSelected) row.classList.add('table-active');
+
             row.innerHTML = `
                 <td>
                     <div class="company-info">
-                        ${logo.html}
+                        <img src="${logo.primary}" alt="${offer.company} logo" class="company-logo-sm" loading="lazy" onerror="this.onerror=null;this.src='${logo.fallback}'">
                         <div>
                             <div class="company-name">${offer.company}</div>
-                            <div class="company-location">${offer.location}</div>
+                            <div class="company-location small text-muted">${offer.location}</div>
                         </div>
                     </div>
                 </td>
@@ -1181,13 +1183,33 @@ class LeetCodeCompensationTracker {
                     }
                 </td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary compare-btn" 
-                            data-offer-id="${offer.id}"
-                            onclick="app.toggleComparison('${offer.id}')">
-                        <i class="fas fa-plus"></i>
+                    <button
+                        class="btn btn-sm ${isSelected ? 'compare-btn selected' : 'btn-outline-primary compare-btn'}"
+                        onclick="app.toggleComparison('${offer.id}')"
+                        aria-pressed="${isSelected}"
+                        aria-label="${isSelected ? 'Remove from comparison' : 'Add to comparison'} ${offer.company}"
+                        data-offer-id="${offer.id}">
+                        ${isSelected ? '<i class="fas fa-check me-1"></i>Selected' : '<i class="fas fa-plus"></i>'}
                     </button>
                 </td>
             `;
+
+            // Make row keyboard-focusable for quick select (Enter/Space)
+            row.tabIndex = 0;
+            row.setAttribute('role', 'button');
+            row.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter' || ev.key === ' ') {
+                    ev.preventDefault();
+                    this.toggleComparison(offer.id);
+                }
+            });
+            row.addEventListener('click', (ev) => {
+                // If the click target is the button, ignore here (button handles it)
+                if (!ev.target.closest('button')) {
+                    this.toggleComparison(offer.id);
+                }
+            });
+
             tbody.appendChild(row);
         });
         table.appendChild(tbody);
@@ -1356,6 +1378,9 @@ class LeetCodeCompensationTracker {
         // Calculate comparison metrics
         const metrics = this.calculateComparisonMetrics();
 
+    // Sort comparison offers by total compensation (desc) for clearer presentation
+    this.comparisonOffers.sort((a, b) => b.total - a.total);
+
         // Generate comparison HTML
         let comparisonHTML = `
             <div class="comparison-header">
@@ -1367,6 +1392,9 @@ class LeetCodeCompensationTracker {
                     <button class="btn btn-sm btn-outline-primary" onclick="app.exportComparison()">
                         <i class="fas fa-download"></i> Export
                     </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="window.print()">
+                        <i class="fas fa-print"></i> Print
+                    </button>
                     <button class="btn btn-sm btn-outline-danger" onclick="app.clearComparison()">
                         <i class="fas fa-trash"></i> Clear All
                     </button>
@@ -1375,21 +1403,26 @@ class LeetCodeCompensationTracker {
             <div class="comparison-grid">
         `;
 
-        // Add comparison items
+        // Add comparison items (highlight the top offer)
         comparisonHTML += this.comparisonOffers.map(offer => {
             const logo = this.getCompanyLogoUrl(offer.company, 'medium');
+            const isTop = offer.total === metrics.maxSalary;
             return `
-                <div class="comparison-item">
+                <div class="comparison-item ${isTop ? 'top' : ''}" data-offer-id="${offer.id}">
                     <div class="comparison-company">
                         ${logo.html}
                         <div class="comparison-company-info">
                             <div class="comparison-company-name">${offer.company}</div>
                             <div class="comparison-role">${offer.mapped_role}</div>
                         </div>
-                        <button class="btn btn-sm btn-outline-danger" onclick="app.removeFromComparison('${offer.id}')">
-                            <i class="fas fa-times"></i>
-                        </button>
+                        <div class="ms-auto">
+                            <div class="badge bg-white text-primary" style="font-weight:700; padding:0.5rem 0.75rem; border:1px solid rgba(99,102,241,0.08);">₹${this.formatSalary(offer.total)} LPA</div>
+                            <button class="btn btn-sm btn-link text-danger mt-2" onclick="app.removeFromComparison('${offer.id}')">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
                     </div>
+                    ${isTop ? `<div class="top-crown" style="position:absolute; top:10px; right:12px; font-size:1.1rem;" role="img" aria-label="Top offer"><i class="fas fa-crown" aria-hidden="true"></i><span class="visually-hidden">Top offer</span></div>` : ''}
                     
                     <div class="comparison-details">
                         <div class="comparison-detail">
@@ -1404,7 +1437,8 @@ class LeetCodeCompensationTracker {
                     
                     <div class="comparison-salary">
                         <div class="comparison-salary-total">₹${this.formatSalary(offer.total)} LPA</div>
-                        <div class="comparison-salary-base">Base: ₹${this.formatSalary(offer.base)} LPA</div>
+                        <div class="comparison-salary-base">Base: ₹${this.formatSalary(offer.base)} LPA • Bonus: ₹${this.formatSalary(offer.total - (offer.base || 0))} LPA</div>
+                        ${metrics.avgSalary ? `<div class="comparison-salary-delta small text-muted">${this.formatPercent((offer.total - metrics.avgSalary) / metrics.avgSalary)} vs avg</div>` : ''}
                     </div>
                 </div>
             `;
@@ -2046,6 +2080,19 @@ class LeetCodeCompensationTracker {
             minimumFractionDigits: 0,
             maximumFractionDigits: 1
         }).format(amount);
+    }
+
+    formatPercent(value, options = {}) {
+        // value is expected to be a ratio (e.g. 0.12 for 12%)
+        const { decimals = 1, showSign = true } = options;
+        if (value === null || value === undefined || isNaN(value)) return '';
+        const percent = value * 100;
+        const formatter = new Intl.NumberFormat('en-IN', {
+            minimumFractionDigits: decimals,
+            maximumFractionDigits: decimals
+        });
+        const sign = showSign && percent > 0 ? '+' : '';
+        return `${sign}${formatter.format(percent)}%`;
     }
 
     showNotification(message, type = 'info') {
