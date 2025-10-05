@@ -180,7 +180,10 @@ class LeetCodeCompensationTracker {
             
             // Validate and clean data before deduplication
             console.log('Starting data validation...');
-            const validOffers = rawOffers.filter(offer => {
+            const validOffers = [];
+            const invalidOffers = [];
+
+            for (const offer of rawOffers) {
                 const isValid = offer && 
                        typeof offer === 'object' &&
                        typeof offer.total === 'number' &&
@@ -196,29 +199,32 @@ class LeetCodeCompensationTracker {
                        !isNaN(offer.yoe) &&
                        offer.creation_date &&
                        typeof offer.creation_date === 'string';
-                
-                if (!isValid && offer) {
-                    console.error('Invalid offer:', {
-                        hasTotal: typeof offer.total === 'number',
-                        totalValue: offer.total,
-                        totalIsNaN: isNaN(offer.total),
-                        hasCompany: Boolean(offer.company),
-                        companyType: typeof offer.company,
-                        hasRole: Boolean(offer.role),
-                        roleType: typeof offer.role,
-                        hasLocation: Boolean(offer.location),
-                        locationType: typeof offer.location,
-                        hasYoe: Boolean(offer.yoe),
-                        yoeType: typeof offer.yoe,
-                        yoeValue: offer.yoe,
-                        yoeIsNaN: isNaN(offer.yoe),
-                        hasDate: Boolean(offer.creation_date),
-                        dateType: typeof offer.creation_date,
-                        preview: JSON.stringify(offer).substring(0, 100) + '...'
-                    });
+
+                if (isValid) {
+                    validOffers.push(offer);
+                } else {
+                    // collect invalid offers for a summarized log later
+                    invalidOffers.push(offer);
                 }
-                return isValid;
-            });
+            }
+
+            if (invalidOffers.length > 0) {
+                // Log a compact summary rather than a per-offer error to reduce noise
+                console.warn(`Data validation: ${invalidOffers.length} invalid offers skipped out of ${rawOffers.length}. Showing a sample:`);
+                try {
+                    console.warn(JSON.stringify(invalidOffers.slice(0, 3).map(o => ({
+                        id: o && o.id,
+                        company: o && o.company,
+                        role: o && o.role,
+                        total: o && o.total,
+                        yoe: o && o.yoe,
+                        creation_date: o && o.creation_date
+                    })), null, 2));
+                } catch (e) {
+                    // fall back to a simpler log if JSON stringify fails
+                    console.warn(invalidOffers.slice(0, 3));
+                }
+            }
 
             if (validOffers.length === 0) {
                 console.error('No valid offers in data:', {
@@ -280,6 +286,11 @@ class LeetCodeCompensationTracker {
             // Load and cache company logos
             console.log('Loading company logos...');
             await this.loadCompanyLogos();
+
+            // Populate datalists used for autosuggests (if helper available)
+            if (typeof window !== 'undefined' && window.updateDatalistsFromApp) {
+                try { window.updateDatalistsFromApp(); } catch (e) { /* ignore */ }
+            }
             
             console.log('Data load complete:', {
                 uniqueOffers: this.offers.length,
@@ -1600,12 +1611,42 @@ class LeetCodeCompensationTracker {
         const input = document.getElementById(inputId);
         if (!input) return;
 
-        // Initialize Bloodhound suggestion engine
-        const engine = new Bloodhound({
-            datumTokenizer: Bloodhound.tokenizers.whitespace,
-            queryTokenizer: Bloodhound.tokenizers.whitespace,
-            local: optionsFn()
-        });
+        // For company fields, skip Typeahead for now and use a simple input
+        // handler so the behavior matches the main search box.
+        if (inputId === 'companyInput' || inputId === 'interviewCompanyInput') {
+            const clearBtn = document.createElement('button');
+            clearBtn.className = 'input-group-addon';
+            clearBtn.innerHTML = '<i class="fas fa-times clear-input"></i>';
+            clearBtn.style.display = 'none';
+            input.parentElement.appendChild(clearBtn);
+            // Mark parent so CSS can show the addon only when intended
+            input.parentElement.classList.add('has-addon');
+
+            input.addEventListener('input', (e) => {
+                const v = e.target.value.trim();
+                // Toggle visibility via class so CSS controls layout
+                if (v) {
+                    input.parentElement.classList.add('has-addon');
+                } else {
+                    input.parentElement.classList.remove('has-addon');
+                }
+                // Apply company filter (do NOT mirror value into main search input)
+                this.filters.company = v;
+                this.debounce(() => this.applyFilters(), 200)();
+            });
+
+            clearBtn.addEventListener('click', () => {
+                input.value = '';
+                input.parentElement.classList.remove('has-addon');
+                this.filters.company = '';
+                this.applyFilters();
+                input.focus();
+            });
+
+            return;
+        }
+
+        // Use native datalist suggestions instead of Bloodhound/typeahead
 
         // Initialize icon and clear button
         const inputWrapper = input.parentElement;
@@ -1620,72 +1661,87 @@ class LeetCodeCompensationTracker {
             'discussSearch': 'search'
         };
 
-        // Add icon
-        const icon = document.createElement('i');
-        icon.className = `fas fa-${iconMap[inputId] || 'search'} input-icon`;
-        icon.style.opacity = '0';
-        inputWrapper.appendChild(icon);
+        // Add clear button only for discussSearch (company inputs are handled above)
+        let clearBtn = null;
+        if (inputId === 'discussSearch') {
+            clearBtn = document.createElement('button');
+            clearBtn.className = 'input-group-addon';
+            clearBtn.innerHTML = '<i class="fas fa-times clear-input"></i>';
+            clearBtn.style.display = 'none';
+            inputWrapper.appendChild(clearBtn);
+            // Mark parent so CSS displays addon only when we want it
+            inputWrapper.classList.add('has-addon');
+            // Initially hide until there's content
+            inputWrapper.classList.remove('has-addon');
+        }
 
-        // Add clear button
-        const clearBtn = document.createElement('button');
-        clearBtn.className = 'input-group-addon';
-        clearBtn.innerHTML = '<i class="fas fa-times clear-input"></i>';
-        clearBtn.style.display = 'none';
-        inputWrapper.appendChild(clearBtn);
-
-        // Initialize Typeahead
-        $(input).typeahead({
-            hint: true,
-            highlight: true,
-            minLength: 1
-        },
-        {
-            name: 'suggestions',
-            source: engine,
-            limit: 8,
-            templates: {
-                suggestion: (data) => {
-                    const meta = this.getSuggestionMeta(inputId, data);
-                    return `
-
-                    `;
-                },
-
-            }
-        });
-
-        // Show icon on focus
-        input.addEventListener('focus', () => {
-            if (input.value.trim()) {
-                icon.style.opacity = '1';
-            }
-        });
-
-        // Hide icon on blur
-        input.addEventListener('blur', () => {
-            if (!input.value.trim()) {
-                icon.style.opacity = '0';
-            }
-        });
+        // Use native datalist suggestions when available, fallback to simple input behavior.
+        // Populate a datalist element for this input to aid suggestions in browsers.
+        const listId = `${inputId}-datalist`;
+        let dataList = document.getElementById(listId);
+        if (!dataList) {
+            dataList = document.createElement('datalist');
+            dataList.id = listId;
+            document.body.appendChild(dataList);
+            input.setAttribute('list', listId);
+        }
+        // Fill datalist options
+        try {
+            const options = optionsFn() || [];
+            dataList.innerHTML = options.slice(0, 200).map(opt => `<option value="${opt}"></option>`).join('');
+        } catch (e) {
+            // ignore datalist failures
+        }
 
         // Handle input changes
         input.addEventListener('input', () => {
             const value = input.value.trim();
-            clearBtn.style.display = value ? 'flex' : 'none';
-            icon.style.opacity = value ? '1' : '0';
+            if (clearBtn) {
+                if (value) inputWrapper.classList.add('has-addon');
+                else inputWrapper.classList.remove('has-addon');
+            }
         });
 
-        // Clear button functionality
-        clearBtn.addEventListener('click', () => {
-            input.value = '';
-            clearBtn.style.display = 'none';
-            icon.style.opacity = '0';
-            input.focus();
-            
-            // Reset filters and trigger update
-            if (inputId === 'discussSearch') {
-                this.renderDiscussList();
-            } else {
+        // Clear button functionality (only if created)
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                input.value = '';
+                inputWrapper.classList.remove('has-addon');
+                input.focus();
+
+                // Reset filters and trigger update
+                if (inputId === 'discussSearch') {
+                    this.renderDiscussList();
+                } else {
+                    const map = { 
+                        companyInput: 'company', 
+                        locationInput: 'location', 
+                        roleInput: 'role',
+                        interviewCompanyInput: 'company',
+                        interviewRoleInput: 'role',
+                        interviewYoeInput: 'yoe',
+                        techStackInput: 'tech'
+                    };
+                    const key = map[inputId];
+                    if (key) {
+                        this.filters[key] = '';
+                        if (['company', 'location', 'role'].includes(key)) {
+                            this.filters.search = '';
+                            if (document.getElementById('searchInput')) {
+                                document.getElementById('searchInput').value = '';
+                            }
+                        }
+                        this.applyFilters();
+                    }
+                }
+
+                input.dispatchEvent(new Event('input'));
+            });
+        }
+
+        // Handle Enter key to accept datalist suggestion / input value
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
                 const map = { 
                     companyInput: 'company', 
                     locationInput: 'location', 
@@ -1693,43 +1749,20 @@ class LeetCodeCompensationTracker {
                     interviewCompanyInput: 'company',
                     interviewRoleInput: 'role',
                     interviewYoeInput: 'yoe',
-                    techStackInput: 'tech'
+                    techStackInput: 'tech',
+                    discussSearch: 'discuss'
                 };
                 const key = map[inputId];
                 if (key) {
-                    this.filters[key] = '';
-                    if (['company', 'location', 'role'].includes(key)) {
-                        this.filters.search = '';
-                        if (document.getElementById('searchInput')) {
-                            document.getElementById('searchInput').value = '';
-                        }
+                    const value = input.value.trim();
+                    if (key === 'discuss') {
+                        this.renderDiscussList();
+                    } else {
+                        this.filters[key] = value;
+                        // Do not mirror or clear the main search input when using field-specific filters.
+                        // The main search is independent; we only set the specific filter here.
+                        this.applyFilters();
                     }
-                    this.applyFilters();
-                }
-            }
-            
-            input.dispatchEvent(new Event('input'));
-        });
-
-        // Handle selection
-        $(input).on('typeahead:select', (e, suggestion) => {
-            const map = { 
-                companyInput: 'company', 
-                locationInput: 'location', 
-                roleInput: 'role',
-                interviewCompanyInput: 'company',
-                interviewRoleInput: 'role',
-                interviewYoeInput: 'yoe',
-                techStackInput: 'tech'
-            };
-            
-            const key = map[inputId];
-            if (key) {
-                this.filters[key] = suggestion;
-                if (inputId === 'discussSearch') {
-                    this.renderDiscussList();
-                } else {
-                    this.applyFilters();
                 }
             }
         });
@@ -1808,6 +1841,21 @@ class LeetCodeCompensationTracker {
                                 <div class="flex-grow-1">
                                     <h6 class="card-title mb-1">${it.title}</h6>
                                     <p class="text-muted small mb-0">${it.meta}</p>
+                                </div>
+                                <div class="ms-2">
+                                    ${(() => {
+                                        // find matching offer to get original url if present
+                                        const o = this.offers.find(x => x.id === it.id && x.company === it.company);
+                                        if (o && o.interview_exp && o.interview_exp !== 'N/A') {
+                                            return `<a href="${o.interview_exp}" target="_blank" class="btn btn-sm btn-outline-primary">Read</a>`;
+                                        }
+                                        // Fallback: create a canonical discuss URL using the offer id if available
+                                        if (it.id) {
+                                            const fallbackUrl = `https://leetcode.com/discuss/compensation/${encodeURIComponent(it.id)}`;
+                                            return `<a href="${fallbackUrl}" target="_blank" class="btn btn-sm btn-outline-secondary">Read</a>`;
+                                        }
+                                        return '';
+                                    })()}
                                 </div>
                             </div>
                         </div>

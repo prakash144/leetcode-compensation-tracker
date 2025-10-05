@@ -281,22 +281,18 @@ body.dark {
 
 .filter-row {
     display: flex;
-    gap: 1rem;
-    align-items: end;
     flex-wrap: wrap;
+    gap: clamp(0.75rem, 2vw, 1rem);
+    align-items: flex-end;
 }
 
 .filter-group {
-    flex: 1;
+    flex: 1 1 200px;
     min-width: 200px;
-    position: relative;
+    position: relative; /* anchors .input-icon and .input-group-addon */
 }
 
 .filter-group label {
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 0.5rem;
-    display: block;
     font-size: 0.9rem;
 }
 
@@ -333,8 +329,10 @@ body.dark {
 }
 
 /* Only show icon when input is focused */
-.filter-group:focus-within .input-icon {
+.filter-group.has-addon .input-icon {
     display: block;
+}
+.filter-group.has-addon:focus-within .input-icon {
     opacity: 1;
 }
 
@@ -389,6 +387,17 @@ body.dark {
 
 .form-control:not(:placeholder-shown) ~ .input-group-addon {
     display: flex;
+}
+
+/* Prefer explicit JS-controlled visibility for clear buttons.
+   Only show .input-group-addon when parent .filter-group has .has-addon.
+   This prevents legacy CSS or structural selectors from revealing
+   stray icons when the DOM doesn't intend them to be visible. */
+.filter-group .input-group-addon {
+    display: none !important;
+}
+.filter-group.has-addon .input-group-addon {
+    display: flex !important;
 }
 
 /* Button Styles */
